@@ -1,0 +1,75 @@
+import os
+import numpy as np
+import rasterio
+from affine import Affine
+
+def super(geotiff_folder, superres_tif_folder, output_folder, scale_factor=10):
+    os.makedirs(output_folder, exist_ok=True)
+
+    for file in os.listdir(geotiff_folder):
+        if not file.lower().endswith(".tif"):
+            continue
+
+        file_base = os.path.splitext(file)[0]
+        input_tif_path = os.path.join(geotiff_folder, file)
+
+        # Find matching super-res .tif
+        matching_sr_tif = None
+        for fname in os.listdir(superres_tif_folder):
+            if fname.lower().endswith(".tif") and os.path.splitext(fname)[0] == file_base:
+                matching_sr_tif = os.path.join(superres_tif_folder, fname)
+                break
+
+        if not matching_sr_tif:
+            print(f"[⚠️] No matching super-res .tif found for: {file_base}")
+            continue
+
+        print(f"[✅] Processing {file_base} → {os.path.basename(matching_sr_tif)}")
+
+        # Step 1: Read original georeferenced image
+        with rasterio.open(input_tif_path) as src:
+            crs = src.crs
+            transform_original = src.transform
+            top_left_x = src.bounds.left
+            top_left_y = src.bounds.top
+
+        # Step 2: Read super-res image (no CRS)
+        with rasterio.open(matching_sr_tif) as sr:
+            sr_img = sr.read()
+            height, width = sr.height, sr.width
+            num_bands = sr.count
+            dtype = sr.dtypes[0]
+
+        # ✅ Step 3: Use correct affine transform (no flip)
+        pixel_width = transform_original.a / scale_factor
+        pixel_height = transform_original.e / scale_factor  # already negative
+
+        transform_new = Affine.translation(top_left_x, top_left_y) * Affine.scale(pixel_width, pixel_height)
+
+        # Step 4: Write georeferenced output .tif
+        output_filename = f"Superresolution_{file_base}.tif"
+        output_tif_path = os.path.join(output_folder, output_filename)
+
+        with rasterio.open(
+            output_tif_path,
+            'w',
+            driver='GTiff',
+            width=width,
+            height=height,
+            count=num_bands,
+            dtype=dtype,
+            crs=crs,
+            transform=transform_new
+        ) as dst:
+            dst.write(sr_img)
+
+        print(f"[💾] Saved georeferenced TIFF → {output_tif_path}")
+
+# Example usage
+if __name__ == "__main__":
+    super(
+        geotiff_folder=r"H:\Super resolution\SRGworking\SRGworking\test_data",         # Original georeferenced .tif
+        superres_tif_folder=r"H:\Super resolution\SRGworking\SRGworking\sr_outputs",   # Super-res .tif (not georeferenced)
+        output_folder=r"H:\Super resolution\SRGworking\SRGworking\georef_outputs",     # Save final georeferenced .tif
+        scale_factor=10  # Example: 10m → 1m resolution
+    )
