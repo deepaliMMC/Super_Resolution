@@ -1,0 +1,239 @@
+# # # Step 1: Import Libraries and Set Parameters
+# # import math
+# # import requests
+# # from PIL import Image
+# # from io import BytesIO
+# # import matplotlib.pyplot as plt
+# #
+# # ZOOM = 18
+# # TILE_SIZE = 256
+# #
+# # # AOI center coordinates (updated)
+# # center_lat = 21.892590
+# # center_lon = 77.917746
+# #
+# # # Convert lat/lon to XYZ tile indices
+# # def latlon_to_tile(lat, lon, zoom):
+# #     lat_rad = math.radians(lat)
+# #     n = 2.0 ** zoom
+# #     xtile = int((lon + 180.0) / 360.0 * n)
+# #     ytile = int((1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+# #     return xtile, ytile
+# #
+# # xtile, ytile = latlon_to_tile(center_lat, center_lon, ZOOM)
+# #
+# # # Step 2: Preview 3x3 Google Basemap Tiles
+# # tiles = []
+# # tile_range = 1
+# # for dy in range(-tile_range, tile_range + 1):
+# #     row = []
+# #     for dx in range(-tile_range, tile_range + 1):
+# #         url = f"https://mt0.google.com/vt/lyrs=y&x={xtile+dx}&y={ytile+dy}&z={ZOOM}&s=Ga"
+# #         r = requests.get(url)
+# #         img = Image.open(BytesIO(r.content))
+# #         row.append(img)
+# #     tiles.append(row)
+# #
+# # # Stitch the 3x3 preview
+# # stitched = Image.new("RGB", (TILE_SIZE * 3, TILE_SIZE * 3))
+# # for i in range(3):
+# #     for j in range(3):
+# #         stitched.paste(tiles[i][j], (j * TILE_SIZE, i * TILE_SIZE))
+# #
+# # plt.imshow(stitched)
+# # plt.axis("off")
+# # plt.title("Google Basemap Preview (Zoom 18, ~60 cm/pixel)")
+# # plt.show()
+# #
+# # # Step 3: Save 5x5 Tile Region (Approx. 128x128 m²)
+# # tile_range = 2  # 5x5 tiles
+# # stitched_large = Image.new("RGB", (TILE_SIZE * 5, TILE_SIZE * 5))
+# #
+# # for dy in range(-tile_range, tile_range + 1):
+# #     for dx in range(-tile_range, tile_range + 1):
+# #         x = xtile + dx
+# #         y = ytile + dy
+# #         url = f"https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={ZOOM}&s=Ga"
+# #         r = requests.get(url)
+# #         tile = Image.open(BytesIO(r.content))
+# #         stitched_large.paste(tile, ((dx + tile_range) * TILE_SIZE, (dy + tile_range) * TILE_SIZE))
+# #
+# # # Save output
+# # stitched_large.save(r"C:\Users\ADMIN\Downloads\stitched_zagazagazaga_z18.png")
+# # print("✅ Basemap stitched and saved as 'stitched_basemap_z18.png'")
+# #####working upar wala but no georeference:
+#
+# import math
+# import requests
+# from PIL import Image
+# from io import BytesIO
+# import matplotlib.pyplot as plt
+# import numpy as np
+# import rasterio
+# from rasterio.transform import from_origin
+#
+# # Step 1: Define parameters
+# ZOOM = 18
+# TILE_SIZE = 256
+# center_lat = 21.892590
+# center_lon = 77.917746
+#
+# # Convert lat/lon to tile number
+# def latlon_to_tile(lat, lon, zoom):
+#     lat_rad = math.radians(lat)
+#     n = 2.0 ** zoom
+#     xtile = int((lon + 180.0) / 360.0 * n)
+#     ytile = int((1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+#     return xtile, ytile
+#
+# # Convert tile number to lat/lon (top-left of tile)
+# def tile_to_latlon(xtile, ytile, zoom):
+#     n = 2.0 ** zoom
+#     lon_deg = xtile / n * 360.0 - 180.0
+#     lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * ytile / n)))
+#     lat_deg = math.degrees(lat_rad)
+#     return lat_deg, lon_deg
+#
+# xtile, ytile = latlon_to_tile(center_lat, center_lon, ZOOM)
+#
+# # Step 2: Stitch 5x5 tiles
+# tile_range = 2  # 5x5
+# stitched = Image.new("RGB", (TILE_SIZE * 5, TILE_SIZE * 5))
+#
+# for dy in range(-tile_range, tile_range + 1):
+#     for dx in range(-tile_range, tile_range + 1):
+#         x = xtile + dx
+#         y = ytile + dy
+#         url = f"https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={ZOOM}&s=Ga"
+#         r = requests.get(url)
+#         tile = Image.open(BytesIO(r.content))
+#         stitched.paste(tile, ((dx + tile_range) * TILE_SIZE, (dy + tile_range) * TILE_SIZE))
+#
+# # Step 3: Georeference the stitched image
+# # Top-left tile coordinate
+# top_left_lat, top_left_lon = tile_to_latlon(xtile - tile_range, ytile - tile_range, ZOOM)
+#
+# # Estimate resolution at zoom 18
+# res = 156543.03 * math.cos(math.radians(center_lat)) / (2 ** ZOOM)  # meters/pixel
+#
+# # GeoTransform: top-left lon, pixel width (xres), 0, top-left lat, 0, -pixel height (yres)
+# transform = from_origin(top_left_lon, top_left_lat, res, res)
+#
+# # Convert stitched image to NumPy array
+# stitched_np = np.array(stitched)
+#
+# # Step 4: Write GeoTIFF
+# output_path = r"C:\Users\ADMIN\Downloads\stitched_georeferenced_z18.tif"
+# with rasterio.open(
+#     output_path,
+#     'w',
+#     driver='GTiff',
+#     height=stitched_np.shape[0],
+#     width=stitched_np.shape[1],
+#     count=3,
+#     dtype=stitched_np.dtype,
+#     crs='EPSG:4326',
+#     transform=transform,
+# ) as dst:
+#     for i in range(3):  # RGB
+#         dst.write(stitched_np[:, :, i], i + 1)
+#
+# print(f"✅ GeoTIFF saved at: {output_path}")
+
+#Working!
+import math
+import requests
+from PIL import Image
+from io import BytesIO
+import numpy as np
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.crs import CRS
+import pyproj
+import os
+
+# -----------------------------
+# Step 1: Define parameters
+# -----------------------------
+ZOOM = 18
+TILE_SIZE = 256
+tile_range = 2  # for 5x5 patch
+center_lat = 21.892590
+center_lon = 77.917746
+
+# -----------------------------
+# Step 2: Tile conversion functions
+# -----------------------------
+def latlon_to_tile(lat, lon, zoom):
+    lat_rad = math.radians(lat)
+    n = 2.0 ** zoom
+    xtile = int((lon + 180.0) / 360.0 * n)
+    ytile = int((1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+    return xtile, ytile
+
+def tile_to_latlon(xtile, ytile, zoom):
+    n = 2.0 ** zoom
+    lon_deg = xtile / n * 360.0 - 180.0
+    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * ytile / n)))
+    lat_deg = math.degrees(lat_rad)
+    return lat_deg, lon_deg
+
+# -----------------------------
+# Step 3: Get center tile
+# -----------------------------
+xtile, ytile = latlon_to_tile(center_lat, center_lon, ZOOM)
+
+# -----------------------------
+# Step 4: Stitch 5x5 tiles
+# -----------------------------
+stitched = Image.new("RGB", (TILE_SIZE * 5, TILE_SIZE * 5))
+
+for dy in range(-tile_range, tile_range + 1):
+    for dx in range(-tile_range, tile_range + 1):
+        x = xtile + dx
+        y = ytile + dy
+        url = f"https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={ZOOM}&s=Ga"
+        r = requests.get(url)
+        tile = Image.open(BytesIO(r.content)).convert("RGB")
+        stitched.paste(tile, ((dx + tile_range) * TILE_SIZE, (dy + tile_range) * TILE_SIZE))
+
+# -----------------------------
+# Step 5: Georeference using EPSG:3857
+# -----------------------------
+# Get lat/lon of top-left tile
+top_left_lat, top_left_lon = tile_to_latlon(xtile - tile_range, ytile - tile_range, ZOOM)
+
+# Convert to Web Mercator (EPSG:3857)
+proj_wgs84 = pyproj.CRS('EPSG:4326')
+proj_merc = pyproj.CRS('EPSG:3857')
+project = pyproj.Transformer.from_crs(proj_wgs84, proj_merc, always_xy=True).transform
+top_left_x, top_left_y = project(top_left_lon, top_left_lat)
+
+# Resolution per pixel in meters (at zoom 18)
+resolution = 156543.03 / (2 ** ZOOM)  # ~0.597 m/px
+
+# Define affine transform
+transform = from_origin(top_left_x, top_left_y, resolution, resolution)
+
+# Convert stitched image to numpy
+stitched_np = np.array(stitched)
+
+# -----------------------------
+# Step 6: Write GeoTIFF
+# -----------------------------
+output_path = r"C:\Users\ADMIN\Downloads\stitched_georeferenced_z18_neww.tif"
+with rasterio.open(
+    output_path,
+    'w',
+    driver='GTiff',
+    height=stitched_np.shape[0],
+    width=stitched_np.shape[1],
+    count=3,
+    dtype=stitched_np.dtype,
+    crs=CRS.from_epsg(3857),
+    transform=transform,
+) as dst:
+    for i in range(3):  # RGB channels
+        dst.write(stitched_np[:, :, i], i + 1)
+
+print(f"✅ GeoTIFF saved at: {output_path}")
